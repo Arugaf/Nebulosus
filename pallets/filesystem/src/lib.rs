@@ -32,39 +32,33 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// A directory was created [who, name]
         DirectoryCreated(T::AccountId, Vec<u8>),
-
         /// A directory was deleted [who, name]
         DirectoryDeleted(T::AccountId, Vec<u8>),
-
         /// A directory was renamed [who, old_name, new_name]
         DirectoryRenamed(T::AccountId, Vec<u8>, Vec<u8>),
-
         /// A directory was moved to another directory [who, old_path, new_path]
         DirectoryMoved(T::AccountId, Vec<u8>, Vec<u8>),
 
         /// A file was created [who, name]
         FileCreated(T::AccountId, Vec<u8>),
-
         /// A file was deleted [who, name]
         FileDeleted(T::AccountId, Vec<u8>),
-
         /// A file was changed [who, name]
         FileChanged(T::AccountId, Vec<u8>),
-
         /// A file was renamed [who, old_name, new_name]
         FileRenamed(T::AccountId, Vec<u8>, Vec<u8>),
-
         /// A file was moved [who, old_path, new_path]
         FileMoved(T::AccountId, Vec<u8>, Vec<u8>),
     }
 
-    // Errors inform users that something went wrong.
     #[pallet::error]
     pub enum Error<T> {
-        /// Error names should be descriptive.
-        NoneValue,
-        /// Errors should have helpful documentation associated with them.
-        StorageOverflow,
+        /// A directory/file with the same name is already exists
+        AlreadyExists,
+        /// A directory/file with this name does not exist
+        DoesNotExist,
+        /// No such directory
+        IncorrectPath,
     }
 
     #[pallet::hooks]
