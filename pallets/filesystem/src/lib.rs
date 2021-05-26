@@ -20,17 +20,19 @@ pub mod pallet {
     #[pallet::generate_store(pub(super) trait Store)]
     pub struct Pallet<T>(_);
 
-    #[derive(Encode, Decode, Default, Clone, PartialEq)]
-    pub struct File {
+    /*#[derive(Encode, Decode, Default, Clone, PartialEq)]
+    pub struct File<T: Config> {
         name: Vec<u8>,
+        file_type: Vec<u8>,
         owner: T::AccountId,
         // changes: Vec<(T::AccountId, u64)>,
-        bytes: Vec<u8>,
+        content: Vec<u8>,
         // permissions
-    }
+        block: T::BlockNumber,
+    }*/
 
     #[pallet::storage]
-    pub(super) type Files<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, File, ValueQuery>;
+    pub(super) type Files<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, (Vec<u8>, Vec<u8>, T::AccountId, Vec<u8>, T::BlockNumber), ValueQuery>;
 
     #[pallet::storage]
     // Temporary implementation (Vec<Vec<u8>>)
@@ -79,7 +81,35 @@ pub mod pallet {
     // Dispatchable functions must be annotated with a weight and must return a DispatchResult.
     #[pallet::call]
     impl<T:Config> Pallet<T> {
-        /// An example dispatchable that takes a singles value as a parameter, writes the value to
+        #[pallet::weight(1_000)]
+        pub(super) fn create_file(
+            origin: OriginFor<T>,
+            name: Vec<u8>,
+            file_type: Vec<u8>,
+            content: Vec<u8>
+        ) -> DispatchResultWithPostInfo {
+
+            // Check that the extrinsic was signed and get the signer.
+            // This function will return an error if the extrinsic is not signed.
+            // https://substrate.dev/docs/en/knowledgebase/runtime/origin
+            let sender = ensure_signed(origin)?;
+
+            // Verify that the specified proof has not already been claimed.
+            ensure!(!Files::<T>::contains_key(&name), Error::<T>::AlreadyExists);
+
+            // Get the block number from the FRAME System module.
+            let current_block = <frame_system::Module<T>>::block_number();
+
+            // Store the proof with the sender and block number.
+            Files::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
+
+            // Emit an event that the claim was created.
+            Self::deposit_event(Event::FileCreated(sender, name));
+
+            Ok(().into())
+        }
+
+        /*/// An example dispatchable that takes a singles value as a parameter, writes the value to
         /// storage and emits an event. This function must be dispatched by a signed extrinsic.
         #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
         pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
@@ -114,6 +144,6 @@ pub mod pallet {
                     Ok(())
                 },
             }
-        }
+        }*/
     }
 }
