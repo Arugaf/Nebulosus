@@ -2,6 +2,8 @@
 
 pub use pallet::*;
 
+use frame_support::codec::{Encode, Decode};
+
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
@@ -18,13 +20,21 @@ pub mod pallet {
     #[pallet::generate_store(pub(super) trait Store)]
     pub struct Pallet<T>(_);
 
-    // The pallet's runtime storage items.
-    // https://substrate.dev/docs/en/knowledgebase/runtime/storage
+    #[derive(Encode, Decode, Default, Clone, PartialEq)]
+    pub struct File {
+        name: Vec<u8>,
+        owner: T::AccountId,
+        // changes: Vec<(T::AccountId, u64)>,
+        bytes: Vec<u8>,
+        // permissions
+    }
+
     #[pallet::storage]
-    #[pallet::getter(fn something)]
-    // Learn more about declaring storage items:
-    // https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
-    pub type Something<T> = StorageValue<_, u32>;
+    pub(super) type Files<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, File, ValueQuery>;
+
+    #[pallet::storage]
+    // Temporary implementation (Vec<Vec<u8>>)
+    pub(super) type Directories<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, Vec<Vec<u8>>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::metadata(T::AccountId = "AccountId")]
