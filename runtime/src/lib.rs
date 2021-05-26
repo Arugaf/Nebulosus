@@ -39,8 +39,8 @@ pub use frame_support::{
 };
 use pallet_transaction_payment::CurrencyAdapter;
 
-/// Import the template pallet.
-pub use pallet_template;
+/// Import the filesystem pallet.
+pub use pallet_filesystem;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -95,8 +95,8 @@ pub mod opaque {
 // To learn more about runtime versioning and what each of the following value means:
 //   https://substrate.dev/docs/en/knowledgebase/runtime/upgrades#runtime-versioning
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("node-template"),
-	impl_name: create_runtime_str!("node-template"),
+	spec_name: create_runtime_str!("nebulosus"),
+	impl_name: create_runtime_str!("nebulosus"),
 	authoring_version: 1,
 	// The version of the runtime specification. A full node will not attempt to use its native
 	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
@@ -269,8 +269,8 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
+/// Configure the pallet-filesystem in pallets/filesystem.
+impl pallet_filesystem::Config for Runtime {
 	type Event = Event;
 }
 
@@ -289,8 +289,8 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-		// Include the custom logic from the pallet-template in the runtime.
-		TemplateModule: pallet_template::{Pallet, Call, Storage, Event<T>},
+		// Include the custom logic from the pallet-filesystem in the runtime.
+		Filesystem: pallet_filesystem::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
