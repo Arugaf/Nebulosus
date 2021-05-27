@@ -125,5 +125,30 @@ pub mod pallet {
 
             Ok(().into())
         }
+
+        #[pallet::weight(1_000)]
+        pub(super) fn rename_file(
+            origin: OriginFor<T>,
+            old_name: Text,
+            new_name: Text
+        ) -> DispatchResultWithPostInfo {
+            let sender = ensure_signed(origin)?;
+            ensure!(Files::<T>::contains_key(&old_name), Error::<T>::DoesNotExist);
+            ensure!(Files::<T>::contains_key(&new_name), Error::<T>::AlreadyExists);
+
+            let current_block = <frame_system::Module<T>>::block_number();
+            let mut file = Files::<T>::get(&old_name);
+            file.0 = new_name.clone();
+
+            // Error check
+            Files::<T>::remove(&old_name);
+
+            Files::<T>::insert(&new_name, file);
+
+            // Files::<T>::mutate(&old_name, (&name, file_type, &sender, content, current_block));
+            Self::deposit_event(Event::FileRenamed(sender, old_name, new_name));
+
+            Ok(().into())
+        }
     }
 }
