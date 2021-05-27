@@ -134,11 +134,10 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let sender = ensure_signed(origin)?;
             ensure!(Files::<T>::contains_key(&old_name), Error::<T>::DoesNotExist);
-            ensure!(Files::<T>::contains_key(&new_name), Error::<T>::AlreadyExists);
+            ensure!(!Files::<T>::contains_key(&new_name), Error::<T>::AlreadyExists);
 
-            let current_block = <frame_system::Module<T>>::block_number();
             let mut file = Files::<T>::get(&old_name);
-            file.0 = new_name.clone();
+            file.0 = new_name.clone(); // можно ли обойтись без клонирования?
 
             // Error check
             Files::<T>::remove(&old_name);
@@ -147,6 +146,31 @@ pub mod pallet {
 
             // Files::<T>::mutate(&old_name, (&name, file_type, &sender, content, current_block));
             Self::deposit_event(Event::FileRenamed(sender, old_name, new_name));
+
+            Ok(().into())
+        }
+
+        #[pallet::weight(1_000)]
+        pub(super) fn change_file(
+            origin: OriginFor<T>,
+            name: Text,
+            file_type: Text, // Как сделать его опциональным? Есть ли смысл?
+            content: Bytes
+        ) -> DispatchResultWithPostInfo {
+            let sender = ensure_signed(origin)?;
+            ensure!(Files::<T>::contains_key(&name), Error::<T>::DoesNotExist);
+
+            let mut file = Files::<T>::get(&name);
+            file.1 = file_type;
+            file.3 = content;
+
+            // Error check
+            Files::<T>::remove(&name);
+
+            Files::<T>::insert(&name, file);
+
+            // Files::<T>::mutate(&old_name, (&name, file_type, &sender, content, current_block));
+            Self::deposit_event(Event::FileChanged(sender, name));
 
             Ok(().into())
         }
