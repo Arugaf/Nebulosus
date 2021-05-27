@@ -4,7 +4,7 @@ description = 'Filesystem pallet for working with files in unix-like style'
 edition = '2018'
 license = 'Unlicense'
 name = 'pallet-filesystem'
-version = '0.1.0'
+version = '0.2.0'
 
 [package.metadata.docs.rs]
 targets = ['x86_64-unknown-linux-gnu']

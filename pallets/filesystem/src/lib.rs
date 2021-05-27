@@ -174,5 +174,19 @@ pub mod pallet {
 
             Ok(().into())
         }
+
+        #[pallet::weight(1_000)]
+        pub(super) fn delete_file(
+            origin: OriginFor<T>,
+            name: Text,
+        ) -> DispatchResultWithPostInfo {
+            let sender = ensure_signed(origin)?;
+            ensure!(Files::<T>::contains_key(&name), Error::<T>::DoesNotExist);
+
+            Files::<T>::remove(&name);
+            Self::deposit_event(Event::FileDeleted(sender, name));
+
+            Ok(().into())
+        }
     }
 }
