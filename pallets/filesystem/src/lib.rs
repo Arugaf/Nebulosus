@@ -10,6 +10,9 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
 
+    type Text = Vec<u8>;
+    type Bytes = Vec<u8>;
+
     #[pallet::config]
     pub trait Config: frame_system::Config {
         /// Runtime definition of an event
@@ -32,35 +35,40 @@ pub mod pallet {
     }*/
 
     #[pallet::storage]
-    pub(super) type Files<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, (Vec<u8>, Vec<u8>, T::AccountId, Vec<u8>, T::BlockNumber), ValueQuery>;
+    pub(super) type Files<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        Text,
+        (Text, Text, T::AccountId, Bytes, T::BlockNumber),
+        ValueQuery>;
 
     #[pallet::storage]
     // Temporary implementation (Vec<Vec<u8>>)
-    pub(super) type Directories<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, Vec<Vec<u8>>, ValueQuery>;
+    pub(super) type Directories<T: Config> = StorageMap<_, Blake2_128Concat, Text, Vec<Text>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::metadata(T::AccountId = "AccountId")]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// A directory was created [who, name]
-        DirectoryCreated(T::AccountId, Vec<u8>),
+        DirectoryCreated(T::AccountId, Text),
         /// A directory was deleted [who, name]
-        DirectoryDeleted(T::AccountId, Vec<u8>),
+        DirectoryDeleted(T::AccountId, Text),
         /// A directory was renamed [who, old_name, new_name]
-        DirectoryRenamed(T::AccountId, Vec<u8>, Vec<u8>),
+        DirectoryRenamed(T::AccountId, Text, Text),
         /// A directory was moved to another directory [who, old_path, new_path]
-        DirectoryMoved(T::AccountId, Vec<u8>, Vec<u8>),
+        DirectoryMoved(T::AccountId, Text, Text),
 
         /// A file was created [who, name]
-        FileCreated(T::AccountId, Vec<u8>),
+        FileCreated(T::AccountId, Text),
         /// A file was deleted [who, name]
-        FileDeleted(T::AccountId, Vec<u8>),
+        FileDeleted(T::AccountId, Text),
         /// A file was changed [who, name]
-        FileChanged(T::AccountId, Vec<u8>),
+        FileChanged(T::AccountId, Text),
         /// A file was renamed [who, old_name, new_name]
-        FileRenamed(T::AccountId, Vec<u8>, Vec<u8>),
+        FileRenamed(T::AccountId, Text, Text),
         /// A file was moved [who, old_path, new_path]
-        FileMoved(T::AccountId, Vec<u8>, Vec<u8>),
+        FileMoved(T::AccountId, Text, Text),
     }
 
     #[pallet::error]
@@ -71,79 +79,51 @@ pub mod pallet {
         DoesNotExist,
         /// No such directory
         IncorrectPath,
+        /// Name should start with / and contains full path to file
+        IncorrectName,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
-    // Dispatchable functions allows users to interact with the pallet and invoke state changes.
-    // These functions materialize as "extrinsics", which are often compared to transactions.
-    // Dispatchable functions must be annotated with a weight and must return a DispatchResult.
     #[pallet::call]
     impl<T:Config> Pallet<T> {
         #[pallet::weight(1_000)]
-        pub(super) fn create_file(
+        pub(super) fn create_dir(
             origin: OriginFor<T>,
-            name: Vec<u8>,
-            file_type: Vec<u8>,
-            content: Vec<u8>
+            mut name: Text,
         ) -> DispatchResultWithPostInfo {
 
-            // Check that the extrinsic was signed and get the signer.
-            // This function will return an error if the extrinsic is not signed.
-            // https://substrate.dev/docs/en/knowledgebase/runtime/origin
             let sender = ensure_signed(origin)?;
 
-            // Verify that the specified proof has not already been claimed.
-            ensure!(!Files::<T>::contains_key(&name), Error::<T>::AlreadyExists);
+            ensure!(name[0] == b'/', Error::<T>::IncorrectName);
+            if name[name.len() - 1] == b'/' {
+                name.remove(name.len() - 1);
+            }
 
-            // Get the block number from the FRAME System module.
-            let current_block = <frame_system::Module<T>>::block_number();
+            ensure!(!Directories::<T>::contains_key(&name), Error::<T>::AlreadyExists);
 
-            // Store the proof with the sender and block number.
-            Files::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
-
-            // Emit an event that the claim was created.
+            // Directories::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
             Self::deposit_event(Event::FileCreated(sender, name));
 
             Ok(().into())
         }
 
-        /*/// An example dispatchable that takes a singles value as a parameter, writes the value to
-        /// storage and emits an event. This function must be dispatched by a signed extrinsic.
-        #[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-        pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-            // Check that the extrinsic was signed and get the signer.
-            // This function will return an error if the extrinsic is not signed.
-            // https://substrate.dev/docs/en/knowledgebase/runtime/origin
-            let who = ensure_signed(origin)?;
+        #[pallet::weight(1_000)]
+        pub(super) fn create_file(
+            origin: OriginFor<T>,
+            name: Text,
+            file_type: Text,
+            content: Bytes
+        ) -> DispatchResultWithPostInfo {
+            let sender = ensure_signed(origin)?;
+            ensure!(!Files::<T>::contains_key(&name), Error::<T>::AlreadyExists);
 
-            // Update storage.
-            <Something<T>>::put(something);
+            let current_block = <frame_system::Module<T>>::block_number();
+            Files::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
+            Self::deposit_event(Event::FileCreated(sender, name));
 
-            // Emit an event.
-            Self::deposit_event(Event::SomethingStored(something, who));
-            // Return a successful DispatchResultWithPostInfo
-            Ok(())
+            Ok(().into())
         }
-
-        /// An example dispatchable that may throw a custom error.
-        #[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-        pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-            let _who = ensure_signed(origin)?;
-
-            // Read a value from storage.
-            match <Something<T>>::get() {
-                // Return an error if the value has not been set.
-                None => Err(Error::<T>::NoneValue)?,
-                Some(old) => {
-                    // Increment the value read from storage; will error in the event of overflow.
-                    let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-                    // Update the value in storage with the incremented result.
-                    <Something<T>>::put(new);
-                    Ok(())
-                },
-            }
-        }*/
     }
 }
