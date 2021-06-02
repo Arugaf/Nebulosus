@@ -4,6 +4,12 @@ pub use pallet::*;
 
 use frame_support::codec::{Encode, Decode};
 
+use sp_std::ops::{BitAnd, BitOr};
+use frame_support::sp_runtime::traits::Zero;
+use frame_support::sp_runtime::traits::Member;
+use frame_support::sp_runtime::traits::MaybeSerializeDeserialize;
+use frame_support::Parameter;
+
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 
@@ -26,13 +32,13 @@ pub struct INodeStruct<Account, /*SizeT, Group,*/ Time, Block, FileMode, Permiss
 }
 
 impl<
-    Account: Default,
+    Account: Default + Parameter + Member + MaybeSerializeDeserialize + Ord,
     // SizeT: Default,
     // Group: Default,
     Time: Default,
     Block: Default,
     FileMode: Default,
-    Permissions: Default,
+    Permissions: Zero + Copy + From<u8> + BitAnd<Output=Permissions> + BitOr<Output=Permissions>,
     // TextT: Default,
 > INodeStruct<Account, /*SizeT, Group,*/ Time, Block, FileMode, Permissions/*, TextT*/> {
     pub fn new(owner: Account,
@@ -62,6 +68,15 @@ impl<
             others_permissions,
         }
     }
+
+    // groups?
+    pub fn check_permissions(&self, who: &Account) -> bool {
+        if who == &self.owner {
+            !(self.owner_permissions & WRITE.into()).is_zero()
+        } else {
+            !(self.others_permissions & WRITE.into()).is_zero()
+        }
+    }
 }
 
 #[frame_support::pallet]
@@ -73,7 +88,6 @@ pub mod pallet {
     use crate::INodeStruct;
 
     type Text = Vec<u8>;
-    type Bytes = Vec<u8>;
 
     pub type INode<T> = INodeStruct<
         <T as frame_system::Config>::AccountId,
@@ -99,7 +113,7 @@ pub mod pallet {
         /// Runtime definition of an event
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Groups: Default + Decode + Encode;
-        type FileSizeT: Default + Decode + Encode;
+        // type FileSizeT: Default + Decode + Encode;
 
         // max_file_size /// Maximum size of single file
         // max_fs_size /// Maximum size of all files compiled
@@ -167,8 +181,8 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// A directory was created [who, name, inode]
         DirectoryCreated(T::AccountId, Text, u32),
-        /// A directory was deleted [who, name]
-        DirectoryDeleted(T::AccountId, Text),
+        /// A directory was deleted [who, name, inode]
+        DirectoryDeleted(T::AccountId, Text, u32),
         /// A directory was renamed [who, old_name, new_name]
         DirectoryRenamed(T::AccountId, Text, Text),
         /// A directory was moved to another directory [who, old_path, new_path]
@@ -201,6 +215,9 @@ pub mod pallet {
         NameIsTooBig,
         NotEnoughPermissions,
         TooManyFiles,
+        DirIsNotEmpty,
+        NotDirectory,
+        NoDirectoryWithSuchName,
     }
 
     #[pallet::hooks]
@@ -251,7 +268,7 @@ pub mod pallet {
 
             // --------------------------------------------------------------------end_delete
 
-            let mut free_inodes = FreeInodes::<T>::get();
+            let free_inodes = FreeInodes::<T>::get();
             let cur_node = match (&free_inodes).len() {
                 0 => CurrentInode::<T>::get(),
                 _ => (&free_inodes)[(&free_inodes).len() - 1]
@@ -268,12 +285,8 @@ pub mod pallet {
                     Error::<T>::IncorrectParentInode);
 
             // Check permissions
-            let parent_inode_data = Inodes::<T>::get(&parent_inode);
-            if &who == &parent_inode_data.owner { // groups?
-                ensure!(WRITE & parent_inode_data.owner_permissions > 1, Error::<T>::NotEnoughPermissions); // sudo?
-            } else {
-                ensure!(WRITE & parent_inode_data.others_permissions > 1, Error::<T>::NotEnoughPermissions); // sudo?
-            } // match?
+            ensure!(Inodes::<T>::get(&parent_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
 
             match Directories::<T>::get(&parent_inode)
                 // Search for a given name in current directory
@@ -318,7 +331,9 @@ pub mod pallet {
 
                     // Increment our current_node if it's not free_inode // Todo: change it later to some kind of method
                     if (&free_inodes).len() > 0 && cur_node == (&free_inodes)[(&free_inodes).len() - 1] {
-                        free_inodes.pop();
+                        FreeInodes::<T>::mutate(|inodes| {
+                            inodes.pop();
+                        })
                     } else {
                         CurrentInode::<T>::put(cur_node + 1);
                     }
@@ -327,6 +342,68 @@ pub mod pallet {
 
                     Ok(().into())
                 }
+            }
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn delete_dir_by_name(
+            origin: OriginFor<T>,
+            dir_name: Text,
+            parent_inode: u32,
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            // Check if there is directory with such inode
+            ensure!(Directories::<T>::contains_key(&parent_inode),
+                    Error::<T>::IncorrectParentInode);
+
+            // Check permissions for parent inode
+            ensure!(Inodes::<T>::get(&parent_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+
+            let parent_dir = Directories::<T>::get(&parent_inode);
+            // Search for a given name in current directory
+            match parent_dir.binary_search_by(|probe| probe.0.cmp(&dir_name)) {
+                // If found...
+                Ok(index) => {
+                    let dir_to_del_inode = Inodes::<T>::get(parent_dir[index].1);
+
+                    // Check permissions for inode we want to delete
+                    ensure!(dir_to_del_inode.check_permissions(&who),
+                            Error::<T>::NotEnoughPermissions);
+
+                    // Check if directory
+                    ensure!(dir_to_del_inode.file_mode == DIRECTORY, Error::<T>::NotDirectory);
+
+                    // Check for emptiness
+                    ensure!(Directories::<T>::get(parent_dir[index].1).is_empty(), Error::<T>::DirIsNotEmpty);
+
+                    // Delete directory from parent dir
+                    Directories::<T>::mutate(parent_inode, |inode| {
+                        inode.remove(index);
+                    });
+
+                    let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
+                    // Change last modified and last changed timestamps of parent inode
+                    Inodes::<T>::mutate(parent_inode, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
+                    });
+
+                    // Remove inode from inodes list
+                    Inodes::<T>::remove(parent_dir[index].1);
+
+                    // Update FreeInodes list
+                    FreeInodes::<T>::mutate(|inodes| {
+                        inodes.push(parent_dir[index].1);
+                    });
+
+                    Self::deposit_event(Event::DirectoryDeleted(who, dir_name, parent_dir[index].1));
+
+                    Ok(().into())
+                }
+
+                Err(_) => Err(Error::<T>::NoDirectoryWithSuchName.into()),
             }
         }
     }

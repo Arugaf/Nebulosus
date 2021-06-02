@@ -278,7 +278,7 @@ parameter_types! {
 impl pallet_filesystem::Config for Runtime {
 	type Event = Event;
 	type Groups = ();
-	type FileSizeT = u64;
+	// type FileSizeT = u64;
 	type MaxFilename = MaxFilename;
 	type MaxNumOfFiles = MaxInodes;
 }
