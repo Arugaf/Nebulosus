@@ -4,20 +4,73 @@ pub use pallet::*;
 
 use frame_support::codec::{Encode, Decode};
 
+#[cfg(feature = "std")]
+use serde::{Deserialize, Serialize};
+
+// Todo: правильно раскидать трейты
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default)]
-pub struct INodeStruct<Account, SizeT, Group, Time, Block, FileMode, Permissions, TextT> {
+pub struct INodeStruct<Account, /*SizeT, Group,*/ Time, Block, FileMode, Permissions/*, TextT*/> {
     owner: Account,
-    size: SizeT,
-    owner_group: Group,
+    // size: SizeT,
+    // owner_group: Group,
     modified: Time,
     changed: Time,
     created: Time,
     block: Block,
     file_mode: FileMode,
-    mime_type: TextT,
+    // mime_type: TextT,
     owner_permissions: Permissions,
     group_permissions: Permissions,
     others_permissions: Permissions,
+}
+
+// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
+// 000000000000000050bf20cd7901000050bf20cd7901000050bf20cd79010000c40000000100070705
+
+// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
+// 000000000000000050bf20cd7901000050bf20cd7901000050bf20cd79010000c40000000100070707
+
+// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
+// 0000000000000000a0342ecd79010000a0342ecd79010000a0342ecd79010000570100000100070705
+
+impl<
+    Account: Default,
+    // SizeT: Default,
+    // Group: Default,
+    Time: Default,
+    Block: Default,
+    FileMode: Default,
+    Permissions: Default,
+    // TextT: Default,
+> INodeStruct<Account, /*SizeT, Group,*/ Time, Block, FileMode, Permissions/*, TextT*/> {
+    pub fn new(owner: Account,
+               // size: SizeT,
+               // owner_group: Group,
+               modified: Time,
+               changed: Time,
+               created: Time,
+               block: Block,
+               file_mode: FileMode,
+               // mime_type: TextT,
+               owner_permissions: Permissions,
+               group_permissions: Permissions,
+               others_permissions: Permissions) -> Self {
+        INodeStruct {
+            owner,
+            // size,
+            // owner_group,
+            modified,
+            changed,
+            created,
+            block,
+            file_mode,
+            // mime_type,
+            owner_permissions,
+            group_permissions,
+            others_permissions,
+        }
+    }
 }
 
 #[frame_support::pallet]
@@ -33,13 +86,13 @@ pub mod pallet {
 
     pub type INode<T> = INodeStruct<
         <T as frame_system::Config>::AccountId,
-        <T as Config>::FileSizeT,
-        <T as Config>::Groups,
+        // <T as Config>::FileSizeT,
+        // <T as Config>::Groups,
         <T as pallet_timestamp::Config>::Moment,
         <T as frame_system::Config>::BlockNumber,
         u8,
         u8,
-        Vec<u8>
+        // Vec<u8>
     >;
 
     pub const EXECUTE: u8 = 0x01;
@@ -55,12 +108,17 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Groups: Default + Decode + Encode;
         type FileSizeT: Default + Decode + Encode;
+        // max_file_size /// Maximum size of single file
+        // max_fs_size /// Maximum size of all files compiled
+        // max_num_of_files /// Maximum num of inodes
+        // max_filename /// Maximum length of filename
     }
 
     #[pallet::pallet]
     #[pallet::generate_store(pub (super) trait Store)]
     pub struct Pallet<T>(_);
 
+    // Todo: make it more generic instead of u32?
     #[pallet::storage]
     pub(super) type Inodes<T: Config> = StorageMap<
         _,
@@ -71,29 +129,47 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
+    pub(super) type Directories<T: Config> = StorageMap<
+        _,
+        Blake2_256,
+        u32,
+        Vec<(Text, u32)>,
+        ValueQuery
+    >;
+
+    #[pallet::storage]
     pub(super) type CurrentInode<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     #[pallet::storage]
     pub(super) type FreeInodes<T: Config> = StorageValue<_, Vec<u32>, ValueQuery>;
 
-    #[pallet::storage]
-    pub(super) type Files<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        Text,
-        (Text, Text, T::AccountId, Bytes, T::BlockNumber),
-        ValueQuery>;
+    #[pallet::genesis_config]
+    pub struct GenesisConfig {
+        pub start_inode_num: u32,
+    }
 
-    #[pallet::storage]
-    // Temporary implementation (Vec<Vec<u8>>)
-    pub(super) type Directories<T: Config> = StorageMap<_, Blake2_128Concat, Text, Vec<Text>, ValueQuery>;
+    #[cfg(feature = "std")]
+    impl Default for GenesisConfig {
+        fn default() -> Self {
+            Self {
+                start_inode_num: 0u32,
+            }
+        }
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> GenesisBuild<T> for GenesisConfig {
+        fn build(&self) {
+            CurrentInode::<T>::put(&self.start_inode_num);
+        }
+    }
 
     #[pallet::event]
     #[pallet::metadata(T::AccountId = "AccountId")]
     #[pallet::generate_deposit(pub (super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A directory was created [who, name]
-        DirectoryCreated(T::AccountId, Text),
+        /// A directory was created [who, name, inode]
+        DirectoryCreated(T::AccountId, Text, u32),
         /// A directory was deleted [who, name]
         DirectoryDeleted(T::AccountId, Text),
         /// A directory was renamed [who, old_name, new_name]
@@ -123,6 +199,8 @@ pub mod pallet {
         IncorrectPath,
         /// Name should start with / and contains full path to file
         IncorrectName,
+        IncorrectParentInode,
+        DirectoryAlreadyExists,
     }
 
     #[pallet::hooks]
@@ -130,104 +208,105 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        #[pallet::weight(1_000)]
+        #[pallet::weight(1_000_000)]
         pub(super) fn create_dir(
             origin: OriginFor<T>,
-            mut name: Text,
+            dir_name: Text,
+            parent_inode: u32,
         ) -> DispatchResultWithPostInfo {
-            let sender = ensure_signed(origin)?;
+            let who = ensure_signed(origin)?;
 
-            ensure!(name[0] == b'/', Error::<T>::IncorrectName);
-            if name[name.len() - 1] == b'/' {
-                name.remove(name.len() - 1);
+            // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv--------------------delete
+            // Temporary implementation cause can't understand how to work with genesis
+            // Todo: как бы разобраться как именно это работает и пофиксить
+            // Todo: пофиксить genesis инициализацию рута и просто инициализацию структуры (просто кидать структуру не работает)
+
+            let cur_node = CurrentInode::<T>::get();
+            // if let cur_node = CurrentInode::<T>::get()
+            if cur_node == 0 {
+                // Todo: SIZE - КАК БЫ ДЖЕНЕРИК ТАЙП, А КАК ЕГО ЗАСТАВИТЬ РАБОТАТЬ? ОЛО??
+
+                /*Inodes::<T>::insert(cur_node, INode::<T>::new(
+                    who.clone(),
+                    // <T>::FileSizeT::default(),
+                    // <T>::Groups::default(),
+                    <pallet_timestamp::Pallet<T>>::get(),
+                    <pallet_timestamp::Pallet<T>>::get(),
+                    <pallet_timestamp::Pallet<T>>::get(),
+                    <frame_system::Pallet<T>>::block_number(),
+                    DIRECTORY,
+                    // Vec::new(),
+                    EXECUTE | READ | WRITE,
+                    EXECUTE | READ | WRITE,
+                    EXECUTE | READ | WRITE,
+                ));*/
+
+                let empty_vec: Vec<(Text, u32)> = Vec::new();
+                Directories::<T>::insert(cur_node, empty_vec);
+
+                CurrentInode::<T>::put(cur_node + 1); // Todo: отдельный метод на инкремент
+
+                // Todo: а как в расте положить значение в переменную из внутреннего блока?
             }
 
-            ensure!(!Directories::<T>::contains_key(&name), Error::<T>::AlreadyExists);
+            // --------------------------------------------------------------------end_delete
 
-            // Directories::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
-            Self::deposit_event(Event::FileCreated(sender, name));
 
-            Ok(().into())
-        }
+            // Check if there is directory with such node
+            ensure!(Directories::<T>::contains_key(&parent_inode), // Заменить на метод is_directory для структуры inode
+                    Error::<T>::IncorrectParentInode);
 
-        #[pallet::weight(1_000)]
-        pub(super) fn create_file(
-            origin: OriginFor<T>,
-            name: Text,
-            file_type: Text,
-            content: Bytes,
-        ) -> DispatchResultWithPostInfo {
-            let sender = ensure_signed(origin)?;
-            ensure!(!Files::<T>::contains_key(&name), Error::<T>::AlreadyExists);
+            let cur_node = CurrentInode::<T>::get();
 
-            let current_block = <frame_system::Pallet<T>>::block_number();
-            Files::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
-            Self::deposit_event(Event::FileCreated(sender, name));
+            match Directories::<T>::get(&parent_inode)
+                // Search for a given name in current directory
+                .binary_search_by(|probe| probe.0.cmp(&dir_name)) {
+                // We cannot create directory with already existing name in the directory
+                Ok(_) => Err(Error::<T>::DirectoryAlreadyExists.into()),
 
-            Ok(().into())
-        }
+                Err(index) => {
+                    // let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
 
-        #[pallet::weight(1_000)]
-        pub(super) fn rename_file(
-            origin: OriginFor<T>,
-            old_name: Text,
-            new_name: Text,
-        ) -> DispatchResultWithPostInfo {
-            let sender = ensure_signed(origin)?;
-            ensure!(Files::<T>::contains_key(&old_name), Error::<T>::DoesNotExist);
-            ensure!(!Files::<T>::contains_key(&new_name), Error::<T>::AlreadyExists);
+                    // Create new directory metadata and store it into list of Inodes
+                    /*Inodes::<T>::insert(&cur_node, INode::<T>::new(
+                        who.clone(),
+                        // <T>::FileSizeT::default(),
+                        // <T>::Groups::default(),
+                        cur_timestamp.clone(),
+                        cur_timestamp.clone(),
+                        cur_timestamp.clone(),
+                        <frame_system::Pallet<T>>::block_number(),
+                        DIRECTORY,
+                        // Vec::new(),
+                        READ | WRITE | EXECUTE,
+                        READ | WRITE | EXECUTE,
+                        READ | EXECUTE,
+                    ));*/
 
-            let mut file = Files::<T>::get(&old_name);
-            file.0 = new_name.clone(); // можно ли обойтись без клонирования?
+                    // Add new directory to the parent inode
+                    Directories::<T>::mutate(parent_inode, |inode| {
+                        inode.insert(index, (dir_name.clone(), cur_node));
+                    });
 
-            // Error check
-            Files::<T>::remove(&old_name);
+                    // Add new directory to list of directories
+                    // Todo: как вставить новый пустой типизированый вектор напрямую?
+                    let empty_vec: Vec<(Text, u32)> = Vec::new();
+                    Directories::<T>::insert(cur_node, empty_vec);
 
-            Files::<T>::insert(&new_name, file);
+                    // Incrementing our current_node (// Todo: change it later)
+                    CurrentInode::<T>::put(cur_node + 1);
 
-            // Files::<T>::mutate(&old_name, (&name, file_type, &sender, content, current_block));
-            Self::deposit_event(Event::FileRenamed(sender, old_name, new_name));
+                    Self::deposit_event(Event::DirectoryCreated(who, dir_name, cur_node));
 
-            Ok(().into())
-        }
+                    Ok(().into())
+                }
+            }
 
-        #[pallet::weight(1_000)]
-        pub(super) fn change_file(
-            origin: OriginFor<T>,
-            name: Text,
-            file_type: Text, // Как сделать его опциональным? Есть ли смысл?
-            content: Bytes,
-        ) -> DispatchResultWithPostInfo {
-            let sender = ensure_signed(origin)?;
-            ensure!(Files::<T>::contains_key(&name), Error::<T>::DoesNotExist);
-
-            let mut file = Files::<T>::get(&name);
-            file.1 = file_type;
-            file.3 = content;
-
-            // Error check
-            Files::<T>::remove(&name);
-
-            Files::<T>::insert(&name, file);
-
-            // Files::<T>::mutate(&old_name, (&name, file_type, &sender, content, current_block));
-            Self::deposit_event(Event::FileChanged(sender, name));
-
-            Ok(().into())
-        }
-
-        #[pallet::weight(1_000)]
-        pub(super) fn delete_file(
-            origin: OriginFor<T>,
-            name: Text,
-        ) -> DispatchResultWithPostInfo {
-            let sender = ensure_signed(origin)?;
-            ensure!(Files::<T>::contains_key(&name), Error::<T>::DoesNotExist);
-
-            Files::<T>::remove(&name);
-            Self::deposit_event(Event::FileDeleted(sender, name));
-
-            Ok(().into())
+            // добавление пермишена, проверка пермишена по айноде, проверка на длину названия,
+            // проверка на превышение кол-ва айнод, добавить папку в список айнод, добавить папку в список папок
+            // добавить папку в список контента папок, чекать пустые айноды, поменять саму айноду
+            // подтверждение правильности ролей и файлмода, может еще остальные типы чекнуть
+            // изменить данные по изменению/модифайд
         }
     }
 }
