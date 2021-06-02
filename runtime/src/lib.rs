@@ -269,11 +269,16 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
+parameter_types! {
+	pub const MaxFilename: u32 = 50;
+}
+
 /// Configure the pallet-filesystem in pallets/filesystem.
 impl pallet_filesystem::Config for Runtime {
 	type Event = Event;
 	type Groups = ();
 	type FileSizeT = u64;
+	type MaxFilename = MaxFilename;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

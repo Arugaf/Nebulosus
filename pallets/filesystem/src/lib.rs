@@ -25,15 +25,6 @@ pub struct INodeStruct<Account, /*SizeT, Group,*/ Time, Block, FileMode, Permiss
     others_permissions: Permissions,
 }
 
-// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
-// 000000000000000050bf20cd7901000050bf20cd7901000050bf20cd79010000c40000000100070705
-
-// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
-// 000000000000000050bf20cd7901000050bf20cd7901000050bf20cd79010000c40000000100070707
-
-// 0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d
-// 0000000000000000a0342ecd79010000a0342ecd79010000a0342ecd79010000570100000100070705
-
 impl<
     Account: Default,
     // SizeT: Default,
@@ -98,6 +89,7 @@ pub mod pallet {
     pub const EXECUTE: u8 = 0x01;
     pub const WRITE: u8 = 0x02;
     pub const READ: u8 = 0x04;
+    pub const ALL: u8 = EXECUTE | WRITE | READ;
 
     pub const REGULAR: u8 = 0x00;
     pub const DIRECTORY: u8 = 0x01;
@@ -108,10 +100,13 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Groups: Default + Decode + Encode;
         type FileSizeT: Default + Decode + Encode;
+
         // max_file_size /// Maximum size of single file
         // max_fs_size /// Maximum size of all files compiled
         // max_num_of_files /// Maximum num of inodes
-        // max_filename /// Maximum length of filename
+        /// Maximum length of filename in bytes
+        #[pallet::constant]
+        type MaxFilename: Get<u32>;
     }
 
     #[pallet::pallet]
@@ -201,6 +196,8 @@ pub mod pallet {
         IncorrectName,
         IncorrectParentInode,
         DirectoryAlreadyExists,
+        NameIsTooBig,
+        NotEnoughPermissions,
     }
 
     #[pallet::hooks]
@@ -216,7 +213,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
-            // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv--------------------delete
+            // -------------------------------------------------------------------------delete
             // Temporary implementation cause can't understand how to work with genesis
             // Todo: как бы разобраться как именно это работает и пофиксить
             // Todo: пофиксить genesis инициализацию рута и просто инициализацию структуры (просто кидать структуру не работает)
@@ -226,7 +223,7 @@ pub mod pallet {
             if cur_node == 0 {
                 // Todo: SIZE - КАК БЫ ДЖЕНЕРИК ТАЙП, А КАК ЕГО ЗАСТАВИТЬ РАБОТАТЬ? ОЛО??
 
-                /*Inodes::<T>::insert(cur_node, INode::<T>::new(
+                Inodes::<T>::insert(cur_node, INode::<T>::new(
                     who.clone(),
                     // <T>::FileSizeT::default(),
                     // <T>::Groups::default(),
@@ -239,7 +236,7 @@ pub mod pallet {
                     EXECUTE | READ | WRITE,
                     EXECUTE | READ | WRITE,
                     EXECUTE | READ | WRITE,
-                ));*/
+                ));
 
                 let empty_vec: Vec<(Text, u32)> = Vec::new();
                 Directories::<T>::insert(cur_node, empty_vec);
@@ -251,10 +248,20 @@ pub mod pallet {
 
             // --------------------------------------------------------------------end_delete
 
+            // Check if filename length is less than max
+            ensure!(T::MaxFilename::get() as usize >= dir_name.len(), Error::<T>::NameIsTooBig);
 
             // Check if there is directory with such node
-            ensure!(Directories::<T>::contains_key(&parent_inode), // Заменить на метод is_directory для структуры inode
+            ensure!(Directories::<T>::contains_key(&parent_inode), // Заменить на метод is_directory для структуры inode?
                     Error::<T>::IncorrectParentInode);
+
+            // Check permissions
+            let parent_inode_data = Inodes::<T>::get(&parent_inode);
+            if &who == &parent_inode_data.owner { // groups?
+                ensure!(WRITE & parent_inode_data.owner_permissions > 1, Error::<T>::NotEnoughPermissions); // sudo?
+            } else {
+                ensure!(WRITE & parent_inode_data.others_permissions > 1, Error::<T>::NotEnoughPermissions); // sudo?
+            } // match?
 
             let cur_node = CurrentInode::<T>::get();
 
@@ -265,10 +272,10 @@ pub mod pallet {
                 Ok(_) => Err(Error::<T>::DirectoryAlreadyExists.into()),
 
                 Err(index) => {
-                    // let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
+                    let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
 
                     // Create new directory metadata and store it into list of Inodes
-                    /*Inodes::<T>::insert(&cur_node, INode::<T>::new(
+                    Inodes::<T>::insert(cur_node, INode::<T>::new(
                         who.clone(),
                         // <T>::FileSizeT::default(),
                         // <T>::Groups::default(),
@@ -281,11 +288,17 @@ pub mod pallet {
                         READ | WRITE | EXECUTE,
                         READ | WRITE | EXECUTE,
                         READ | EXECUTE,
-                    ));*/
+                    ));
 
                     // Add new directory to the parent inode
                     Directories::<T>::mutate(parent_inode, |inode| {
                         inode.insert(index, (dir_name.clone(), cur_node));
+                    });
+
+                    // Change last modified and last changed timestamps of parent node
+                    Inodes::<T>::mutate(parent_inode, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
                     });
 
                     // Add new directory to list of directories
@@ -293,7 +306,7 @@ pub mod pallet {
                     let empty_vec: Vec<(Text, u32)> = Vec::new();
                     Directories::<T>::insert(cur_node, empty_vec);
 
-                    // Incrementing our current_node (// Todo: change it later)
+                    // Increment our current_node (// Todo: change it later)
                     CurrentInode::<T>::put(cur_node + 1);
 
                     Self::deposit_event(Event::DirectoryCreated(who, dir_name, cur_node));
@@ -302,11 +315,7 @@ pub mod pallet {
                 }
             }
 
-            // добавление пермишена, проверка пермишена по айноде, проверка на длину названия,
-            // проверка на превышение кол-ва айнод, добавить папку в список айнод, добавить папку в список папок
-            // добавить папку в список контента папок, чекать пустые айноды, поменять саму айноду
-            // подтверждение правильности ролей и файлмода, может еще остальные типы чекнуть
-            // изменить данные по изменению/модифайд
+            // проверка на превышение кол-ва айнод, чекать пустые айноды
         }
     }
 }

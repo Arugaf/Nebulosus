@@ -1,0 +1,18 @@
+{
+    "Account": "AccountId",
+    "Time": "u64",
+    "Block": "u32",
+    "FileMode": "u8",
+    "Permissions": "u8",
+    "INode": {
+        "owner": "Account",
+        "modified": "Time",
+        "changed": "Time",
+        "created": "Time",
+        "block": "Block",
+        "file_mode": "FileMode",
+        "owner_permissions": "Permissions",
+        "group_permissions": "Permissions",
+        "others_permissions": "Permissions"
+    }
+}
