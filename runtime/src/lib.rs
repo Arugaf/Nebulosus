@@ -271,6 +271,7 @@ impl pallet_sudo::Config for Runtime {
 
 parameter_types! {
 	pub const MaxFilename: u32 = 50;
+	pub const MaxInodes: u32 = 500;
 }
 
 /// Configure the pallet-filesystem in pallets/filesystem.
@@ -279,6 +280,7 @@ impl pallet_filesystem::Config for Runtime {
 	type Groups = ();
 	type FileSizeT = u64;
 	type MaxFilename = MaxFilename;
+	type MaxNumOfFiles = MaxInodes;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

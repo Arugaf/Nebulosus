@@ -103,7 +103,9 @@ pub mod pallet {
 
         // max_file_size /// Maximum size of single file
         // max_fs_size /// Maximum size of all files compiled
-        // max_num_of_files /// Maximum num of inodes
+        /// Maximum num of inodes
+        #[pallet::constant]
+        type MaxNumOfFiles: Get<u32>;
         /// Maximum length of filename in bytes
         #[pallet::constant]
         type MaxFilename: Get<u32>;
@@ -198,6 +200,7 @@ pub mod pallet {
         DirectoryAlreadyExists,
         NameIsTooBig,
         NotEnoughPermissions,
+        TooManyFiles,
     }
 
     #[pallet::hooks]
@@ -248,6 +251,15 @@ pub mod pallet {
 
             // --------------------------------------------------------------------end_delete
 
+            let mut free_inodes = FreeInodes::<T>::get();
+            let cur_node = match (&free_inodes).len() {
+                0 => CurrentInode::<T>::get(),
+                _ => (&free_inodes)[(&free_inodes).len() - 1]
+            };
+
+            // Check if there is place for new files
+            ensure!(T::MaxNumOfFiles::get() >= cur_node, Error::<T>::TooManyFiles);
+
             // Check if filename length is less than max
             ensure!(T::MaxFilename::get() as usize >= dir_name.len(), Error::<T>::NameIsTooBig);
 
@@ -262,8 +274,6 @@ pub mod pallet {
             } else {
                 ensure!(WRITE & parent_inode_data.others_permissions > 1, Error::<T>::NotEnoughPermissions); // sudo?
             } // match?
-
-            let cur_node = CurrentInode::<T>::get();
 
             match Directories::<T>::get(&parent_inode)
                 // Search for a given name in current directory
@@ -306,16 +316,18 @@ pub mod pallet {
                     let empty_vec: Vec<(Text, u32)> = Vec::new();
                     Directories::<T>::insert(cur_node, empty_vec);
 
-                    // Increment our current_node (// Todo: change it later)
-                    CurrentInode::<T>::put(cur_node + 1);
+                    // Increment our current_node if it's not free_inode // Todo: change it later to some kind of method
+                    if (&free_inodes).len() > 0 && cur_node == (&free_inodes)[(&free_inodes).len() - 1] {
+                        free_inodes.pop();
+                    } else {
+                        CurrentInode::<T>::put(cur_node + 1);
+                    }
 
                     Self::deposit_event(Event::DirectoryCreated(who, dir_name, cur_node));
 
                     Ok(().into())
                 }
             }
-
-            // проверка на превышение кол-ва айнод, чекать пустые айноды
         }
     }
 }
