@@ -274,8 +274,6 @@ impl pallet_filesystem::Config for Runtime {
 	type Event = Event;
 	type Groups = ();
 	type FileSizeT = u64;
-	type Permissions = u8;
-	type FileMode = u8;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

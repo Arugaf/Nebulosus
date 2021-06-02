@@ -4,10 +4,8 @@ pub use pallet::*;
 
 use frame_support::codec::{Encode, Decode};
 
-use sp_std::vec::Vec;
-
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default)]
-pub struct INodeStruct<Account, SizeT, Group, Time, Block, FileMode, Permissions, TextT = Vec<u8>> {
+pub struct INodeStruct<Account, SizeT, Group, Time, Block, FileMode, Permissions, TextT> {
     owner: Account,
     size: SizeT,
     owner_group: Group,
@@ -39,9 +37,17 @@ pub mod pallet {
         <T as Config>::Groups,
         <T as pallet_timestamp::Config>::Moment,
         <T as frame_system::Config>::BlockNumber,
-        <T as Config>::FileMode,
-        <T as Config>::Permissions
+        u8,
+        u8,
+        Vec<u8>
     >;
+
+    pub const EXECUTE: u8 = 0x01;
+    pub const WRITE: u8 = 0x02;
+    pub const READ: u8 = 0x04;
+
+    pub const REGULAR: u8 = 0x00;
+    pub const DIRECTORY: u8 = 0x01;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
@@ -49,8 +55,6 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Groups: Default + Decode + Encode;
         type FileSizeT: Default + Decode + Encode;
-        type Permissions: Default + Decode + Encode;
-        type FileMode: Default + Decode + Encode;
     }
 
     #[pallet::pallet]
