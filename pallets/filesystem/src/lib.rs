@@ -69,6 +69,15 @@ pub mod pallet {
     }*/
 
     #[pallet::storage]
+    pub(super) type Inodes<T: Config> = StorageMap<
+        _,
+        Blake2_256,
+        u32,
+        INode<T>,
+        ValueQuery
+    >;
+
+    #[pallet::storage]
     pub(super) type Files<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
