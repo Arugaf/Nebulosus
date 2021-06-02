@@ -4,23 +4,57 @@ pub use pallet::*;
 
 use frame_support::codec::{Encode, Decode};
 
+use sp_std::vec::Vec;
+
+#[derive(Encode, Decode, Clone, Eq, PartialEq, Default)]
+pub struct INodeStruct<Account, SizeT, Group, Time, Block, FileMode, Permissions, TextT = Vec<u8>> {
+    owner: Account,
+    size: SizeT,
+    owner_group: Group,
+    modified: Time,
+    changed: Time,
+    created: Time,
+    block: Block,
+    file_mode: FileMode,
+    mime_type: TextT,
+    owner_permissions: Permissions,
+    group_permissions: Permissions,
+    others_permissions: Permissions,
+}
+
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
+    use frame_support::{dispatch::DispatchResultWithPostInfo, pallet_prelude::*};
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
+
+    use crate::INodeStruct;
 
     type Text = Vec<u8>;
     type Bytes = Vec<u8>;
 
+    pub type INode<T> = INodeStruct<
+        <T as frame_system::Config>::AccountId,
+        <T as Config>::FileSizeT,
+        <T as Config>::Groups,
+        <T as pallet_timestamp::Config>::Moment,
+        <T as frame_system::Config>::BlockNumber,
+        <T as Config>::FileMode,
+        <T as Config>::Permissions
+    >;
+
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_timestamp::Config {
         /// Runtime definition of an event
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+        type Groups: Default + Decode + Encode;
+        type FileSizeT: Default + Decode + Encode;
+        type Permissions: Default + Decode + Encode;
+        type FileMode: Default + Decode + Encode;
     }
 
     #[pallet::pallet]
-    #[pallet::generate_store(pub(super) trait Store)]
+    #[pallet::generate_store(pub (super) trait Store)]
     pub struct Pallet<T>(_);
 
     /*#[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -48,7 +82,7 @@ pub mod pallet {
 
     #[pallet::event]
     #[pallet::metadata(T::AccountId = "AccountId")]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    #[pallet::generate_deposit(pub (super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// A directory was created [who, name]
         DirectoryCreated(T::AccountId, Text),
@@ -87,13 +121,12 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
     #[pallet::call]
-    impl<T:Config> Pallet<T> {
+    impl<T: Config> Pallet<T> {
         #[pallet::weight(1_000)]
         pub(super) fn create_dir(
             origin: OriginFor<T>,
             mut name: Text,
         ) -> DispatchResultWithPostInfo {
-
             let sender = ensure_signed(origin)?;
 
             ensure!(name[0] == b'/', Error::<T>::IncorrectName);
@@ -114,12 +147,12 @@ pub mod pallet {
             origin: OriginFor<T>,
             name: Text,
             file_type: Text,
-            content: Bytes
+            content: Bytes,
         ) -> DispatchResultWithPostInfo {
             let sender = ensure_signed(origin)?;
             ensure!(!Files::<T>::contains_key(&name), Error::<T>::AlreadyExists);
 
-            let current_block = <frame_system::Module<T>>::block_number();
+            let current_block = <frame_system::Pallet<T>>::block_number();
             Files::<T>::insert(&name, (&name, file_type, &sender, content, current_block));
             Self::deposit_event(Event::FileCreated(sender, name));
 
@@ -130,7 +163,7 @@ pub mod pallet {
         pub(super) fn rename_file(
             origin: OriginFor<T>,
             old_name: Text,
-            new_name: Text
+            new_name: Text,
         ) -> DispatchResultWithPostInfo {
             let sender = ensure_signed(origin)?;
             ensure!(Files::<T>::contains_key(&old_name), Error::<T>::DoesNotExist);
@@ -155,7 +188,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             name: Text,
             file_type: Text, // Как сделать его опциональным? Есть ли смысл?
-            content: Bytes
+            content: Bytes,
         ) -> DispatchResultWithPostInfo {
             let sender = ensure_signed(origin)?;
             ensure!(Files::<T>::contains_key(&name), Error::<T>::DoesNotExist);
