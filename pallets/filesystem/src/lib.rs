@@ -57,17 +57,6 @@ pub mod pallet {
     #[pallet::generate_store(pub (super) trait Store)]
     pub struct Pallet<T>(_);
 
-    /*#[derive(Encode, Decode, Default, Clone, PartialEq)]
-    pub struct File<T: Config> {
-        name: Vec<u8>,
-        file_type: Vec<u8>,
-        owner: T::AccountId,
-        // changes: Vec<(T::AccountId, u64)>,
-        content: Vec<u8>,
-        // permissions
-        block: T::BlockNumber,
-    }*/
-
     #[pallet::storage]
     pub(super) type Inodes<T: Config> = StorageMap<
         _,
@@ -76,6 +65,12 @@ pub mod pallet {
         INode<T>,
         ValueQuery
     >;
+
+    #[pallet::storage]
+    pub(super) type CurrentInode<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+    #[pallet::storage]
+    pub(super) type FreeInodes<T: Config> = StorageValue<_, Vec<u32>, ValueQuery>;
 
     #[pallet::storage]
     pub(super) type Files<T: Config> = StorageMap<
