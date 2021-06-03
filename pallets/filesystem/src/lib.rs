@@ -88,6 +88,7 @@ pub mod pallet {
     use crate::INodeStruct;
 
     type Text = Vec<u8>;
+    type Bytes = Vec<u8>;
 
     pub type INode<T> = INodeStruct<
         <T as frame_system::Config>::AccountId,
@@ -115,10 +116,12 @@ pub mod pallet {
         type Groups: Default + Decode + Encode;
         // type FileSizeT: Default + Decode + Encode;
 
-        // max_file_size /// Maximum size of single file
-        // max_fs_size /// Maximum size of all files compiled
-        /// Maximum num of inodes
+        /// Maximum size of single file in bytes
         #[pallet::constant]
+        type MaxFileSize: Get<u32>;
+        /// Maximum size of all files compiled (up to 4Gb)
+        type MaxFsSize: Get<u32>;
+        /// Maximum num of inodes
         type MaxNumOfFiles: Get<u32>;
         /// Maximum length of filename in bytes
         #[pallet::constant]
@@ -149,13 +152,26 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
+    pub(super) type Files<T: Config> = StorageMap<
+        _,
+        Blake2_256,
+        u32,
+        Bytes,
+        ValueQuery
+    >;
+
+    #[pallet::storage]
     pub(super) type CurrentInode<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     #[pallet::storage]
     pub(super) type FreeInodes<T: Config> = StorageValue<_, Vec<u32>, ValueQuery>;
 
+    #[pallet::storage]
+    pub(super) type CurrentFsSize<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig {
+        pub start_fs_size: u32,
         pub start_inode_num: u32,
     }
 
@@ -163,6 +179,7 @@ pub mod pallet {
     impl Default for GenesisConfig {
         fn default() -> Self {
             Self {
+                start_fs_size: 0u32,
                 start_inode_num: 0u32,
             }
         }
@@ -172,6 +189,7 @@ pub mod pallet {
     impl<T: Config> GenesisBuild<T> for GenesisConfig {
         fn build(&self) {
             CurrentInode::<T>::put(&self.start_inode_num);
+            CurrentFsSize::<T>::put(&self.start_fs_size);
         }
     }
 
@@ -188,8 +206,8 @@ pub mod pallet {
         /// A directory was moved to another directory [who, old_path, new_path]
         DirectoryMoved(T::AccountId, Text, Text),
 
-        /// A file was created [who, name]
-        FileCreated(T::AccountId, Text),
+        /// A file was created [who, name, inode, dir_inode]
+        FileCreated(T::AccountId, Text, u32, u32),
         /// A file was deleted [who, name]
         FileDeleted(T::AccountId, Text),
         /// A file was changed [who, name]
@@ -218,6 +236,9 @@ pub mod pallet {
         DirIsNotEmpty,
         NotDirectory,
         NoDirectoryWithSuchName,
+        FileAlreadyExists,
+        NoSpace,
+        FileIsTooBig
     }
 
     #[pallet::hooks]
@@ -404,6 +425,98 @@ pub mod pallet {
                 }
 
                 Err(_) => Err(Error::<T>::NoDirectoryWithSuchName.into()),
+            }
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn create_file(
+            origin: OriginFor<T>,
+            filename: Text,
+            file_content: Bytes,
+            parent_inode: u32,
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            // Todo: вынести дублирование кода в отдельные функции
+            let free_inodes = FreeInodes::<T>::get();
+            let cur_node = match (&free_inodes).len() {
+                0 => CurrentInode::<T>::get(),
+                _ => (&free_inodes)[(&free_inodes).len() - 1]
+            };
+
+            // Check if there is place and space for new files
+            ensure!(T::MaxNumOfFiles::get() >= cur_node, Error::<T>::TooManyFiles);
+            ensure!(CurrentFsSize::<T>::get() <= T::MaxFsSize::get(), Error::<T>::NoSpace);
+
+            // Check if file size is too large
+            ensure!(file_content.len() <= T::MaxFileSize::get() as usize, Error::<T>::FileIsTooBig);
+
+            // Check if filename length is less than max
+            ensure!(T::MaxFilename::get() as usize >= filename.len(), Error::<T>::NameIsTooBig);
+
+            // Check if there is directory with such node
+            ensure!(Directories::<T>::contains_key(&parent_inode), // Заменить на метод is_directory для структуры inode?
+                    Error::<T>::IncorrectParentInode);
+
+            // Check permissions
+            ensure!(Inodes::<T>::get(&parent_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+
+            match Directories::<T>::get(&parent_inode)
+                // Search for a given name in current directory
+                .binary_search_by(|probe| probe.0.cmp(&filename)) {
+                // We cannot create file with already existing name in the directory
+                Ok(_) => Err(Error::<T>::FileAlreadyExists.into()),
+
+                Err(index) => {
+                    let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
+
+                    // Create new file metadata and store it into list of Inodes
+                    Inodes::<T>::insert(cur_node, INode::<T>::new(
+                        who.clone(),
+                        // <T>::FileSizeT::default(),
+                        // <T>::Groups::default(),
+                        cur_timestamp.clone(),
+                        cur_timestamp.clone(),
+                        cur_timestamp.clone(),
+                        <frame_system::Pallet<T>>::block_number(),
+                        REGULAR,
+                        // Vec::new(),
+                        READ | WRITE,
+                        READ | WRITE,
+                        READ,
+                    ));
+
+                    // Add new file to the parent inode
+                    Directories::<T>::mutate(parent_inode, |inode| {
+                        inode.insert(index, (filename.clone(), cur_node));
+                    });
+
+                    // Change last modified and last changed timestamps of parent node
+                    Inodes::<T>::mutate(parent_inode, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
+                    });
+
+                    // Add new file to list of files
+                    Files::<T>::insert(cur_node, &file_content);
+
+                    // Increment our current_node if it's not free_inode // Todo: change it later to some kind of method
+                    if (&free_inodes).len() > 0 && cur_node == (&free_inodes)[(&free_inodes).len() - 1] {
+                        FreeInodes::<T>::mutate(|inodes| {
+                            inodes.pop();
+                        })
+                    } else {
+                        CurrentInode::<T>::put(cur_node + 1);
+                    }
+
+                    // It's okay to convert into u32 cause MaxFileSize: u32
+                    CurrentFsSize::<T>::put(CurrentFsSize::<T>::get() + file_content.len() as u32);
+
+                    Self::deposit_event(Event::FileCreated(who, filename, cur_node, parent_inode));
+
+                    Ok(().into())
+                }
             }
         }
     }
