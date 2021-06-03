@@ -208,8 +208,8 @@ pub mod pallet {
 
         /// A file was created [who, name, inode, dir_inode]
         FileCreated(T::AccountId, Text, u32, u32),
-        /// A file was deleted [who, name]
-        FileDeleted(T::AccountId, Text),
+        /// A file was deleted [who, name, inode]
+        FileDeleted(T::AccountId, Text, u32),
         /// A file was changed [who, name]
         FileChanged(T::AccountId, Text),
         /// A file was renamed [who, old_name, new_name]
@@ -238,7 +238,9 @@ pub mod pallet {
         NoDirectoryWithSuchName,
         FileAlreadyExists,
         NoSpace,
-        FileIsTooBig
+        FileIsTooBig,
+        NotFile,
+        NoFileWithSuchName,
     }
 
     #[pallet::hooks]
@@ -387,7 +389,8 @@ pub mod pallet {
             match parent_dir.binary_search_by(|probe| probe.0.cmp(&dir_name)) {
                 // If found...
                 Ok(index) => {
-                    let dir_to_del_inode = Inodes::<T>::get(parent_dir[index].1);
+                    let inode_to_del = parent_dir[index].1;
+                    let dir_to_del_inode = Inodes::<T>::get(inode_to_del);
 
                     // Check permissions for inode we want to delete
                     ensure!(dir_to_del_inode.check_permissions(&who),
@@ -397,12 +400,14 @@ pub mod pallet {
                     ensure!(dir_to_del_inode.file_mode == DIRECTORY, Error::<T>::NotDirectory);
 
                     // Check for emptiness
-                    ensure!(Directories::<T>::get(parent_dir[index].1).is_empty(), Error::<T>::DirIsNotEmpty);
+                    ensure!(Directories::<T>::get(inode_to_del).is_empty(), Error::<T>::DirIsNotEmpty);
 
                     // Delete directory from parent dir
                     Directories::<T>::mutate(parent_inode, |inode| {
                         inode.remove(index);
                     });
+
+                    Directories::<T>::remove(inode_to_del);
 
                     let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
                     // Change last modified and last changed timestamps of parent inode
@@ -412,14 +417,14 @@ pub mod pallet {
                     });
 
                     // Remove inode from inodes list
-                    Inodes::<T>::remove(parent_dir[index].1);
+                    Inodes::<T>::remove(inode_to_del);
 
                     // Update FreeInodes list
                     FreeInodes::<T>::mutate(|inodes| {
-                        inodes.push(parent_dir[index].1);
+                        inodes.push(inode_to_del);
                     });
 
-                    Self::deposit_event(Event::DirectoryDeleted(who, dir_name, parent_dir[index].1));
+                    Self::deposit_event(Event::DirectoryDeleted(who, dir_name, inode_to_del));
 
                     Ok(().into())
                 }
@@ -517,6 +522,72 @@ pub mod pallet {
 
                     Ok(().into())
                 }
+            }
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn delete_file_by_name(
+            origin: OriginFor<T>,
+            filename: Text,
+            parent_inode: u32,
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            // Check if there is directory with such inode
+            ensure!(Directories::<T>::contains_key(&parent_inode),
+                    Error::<T>::IncorrectParentInode);
+
+            // Check permissions for parent inode
+            ensure!(Inodes::<T>::get(&parent_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+
+            let parent_dir = Directories::<T>::get(&parent_inode);
+            // Search for a given name in current directory
+            match parent_dir.binary_search_by(|probe| probe.0.cmp(&filename)) {
+                // If found...
+                Ok(index) => {
+                    let inode_to_del = parent_dir[index].1;
+                    let file_to_del_inode = Inodes::<T>::get(inode_to_del);
+
+                    // Check permissions for inode we want to delete
+                    ensure!(file_to_del_inode.check_permissions(&who),
+                            Error::<T>::NotEnoughPermissions);
+
+                    // Check if file
+                    ensure!(file_to_del_inode.file_mode == REGULAR, Error::<T>::NotFile);
+
+                    // Delete file from parent dir
+                    Directories::<T>::mutate(parent_inode, |inode| {
+                        inode.remove(index);
+                    });
+
+                    Files::<T>::remove(inode_to_del);
+
+                    let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
+                    // Change last modified and last changed timestamps of parent inode
+                    Inodes::<T>::mutate(parent_inode, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
+                    });
+
+                    CurrentFsSize::<T>::put(CurrentFsSize::<T>::get() - Files::<T>::get(inode_to_del).len() as u32);
+
+                    Files::<T>::remove(inode_to_del);
+
+                    // Remove inode from inodes list
+                    Inodes::<T>::remove(inode_to_del);
+
+                    // Update FreeInodes list
+                    FreeInodes::<T>::mutate(|inodes| {
+                        inodes.push(inode_to_del);
+                    });
+
+                    Self::deposit_event(Event::FileDeleted(who, filename, inode_to_del));
+
+                    Ok(().into())
+                }
+
+                Err(_) => Err(Error::<T>::NoFileWithSuchName.into()),
             }
         }
     }
