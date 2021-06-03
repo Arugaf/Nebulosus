@@ -673,8 +673,27 @@ pub mod pallet {
 
             Inodes::<T>::mutate(inode, |mut_inode| {
                 mut_inode.owner_permissions = permissions.0;
-                mut_inode.owner_permissions = permissions.1;
-                mut_inode.owner_permissions = permissions.2;
+                mut_inode.group_permissions = permissions.1;
+                mut_inode.others_permissions = permissions.2;
+            });
+
+            Ok(().into())
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn chown (
+            origin: OriginFor<T>,
+            inode: u32,
+            new_owner: T::AccountId
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            ensure!(Inodes::<T>::contains_key(inode), Error::<T>::NoSuchInode);
+
+            ensure!(who == Inodes::<T>::get(inode).owner, Error::<T>::NotEnoughPermissions); // groups, sudo
+
+            Inodes::<T>::mutate(inode, |mut_inode| {
+                mut_inode.owner = new_owner;
             });
 
             Ok(().into())
