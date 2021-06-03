@@ -210,8 +210,8 @@ pub mod pallet {
         FileCreated(T::AccountId, Text, u32, u32),
         /// A file was deleted [who, name, inode]
         FileDeleted(T::AccountId, Text, u32),
-        /// A file was changed [who, name]
-        FileChanged(T::AccountId, Text),
+        /// A file was changed [who, name, inode]
+        FileModified(T::AccountId, Text, u32),
         /// A file was renamed [who, old_name, new_name]
         FileRenamed(T::AccountId, Text, Text),
         /// A file was moved [who, old_path, new_path]
@@ -583,6 +583,70 @@ pub mod pallet {
                     });
 
                     Self::deposit_event(Event::FileDeleted(who, filename, inode_to_del));
+
+                    Ok(().into())
+                }
+
+                Err(_) => Err(Error::<T>::NoFileWithSuchName.into()),
+            }
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn modify_file_by_name (
+            origin: OriginFor<T>,
+            filename: Text,
+            parent_inode: u32,
+            new_file_content: Bytes
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            // Check if there is directory with such inode
+            ensure!(Directories::<T>::contains_key(&parent_inode),
+                    Error::<T>::IncorrectParentInode);
+
+            // Check permissions for parent inode
+            ensure!(Inodes::<T>::get(&parent_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+
+            let parent_dir = Directories::<T>::get(&parent_inode);
+            // Search for a given name in current directory
+            match parent_dir.binary_search_by(|probe| probe.0.cmp(&filename)) {
+                // If found...
+                Ok(index) => {
+                    let inode_to_modify = parent_dir[index].1;
+                    let file_to_modify_inode = Inodes::<T>::get(inode_to_modify);
+
+                    // Check permissions for inode we want to modify
+                    ensure!(file_to_modify_inode.check_permissions(&who),
+                            Error::<T>::NotEnoughPermissions);
+
+                    // Check if file
+                    ensure!(file_to_modify_inode.file_mode == REGULAR, Error::<T>::NotFile);
+
+                    CurrentFsSize::<T>::put(CurrentFsSize::<T>::get() -
+                                                Files::<T>::get(inode_to_modify).len() as u32 +
+                                                new_file_content.len() as u32);
+
+                    // Modify the file by replacing all it's content
+                    Files::<T>::mutate(inode_to_modify, |inode| {
+                        inode.clear();
+                        inode.append(&mut new_file_content.clone());
+                    });
+
+                    let cur_timestamp = <pallet_timestamp::Pallet<T>>::get();
+                    // Change last modified and last changed timestamps of parent inode
+                    Inodes::<T>::mutate(parent_inode, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
+                    });
+
+                    // Change last modified and last changed timestamps of file
+                    Inodes::<T>::mutate(inode_to_modify, |inode| {
+                        inode.modified = cur_timestamp.clone();
+                        inode.changed = cur_timestamp.clone();
+                    });
+
+                    Self::deposit_event(Event::FileModified(who, filename, inode_to_modify));
 
                     Ok(().into())
                 }
