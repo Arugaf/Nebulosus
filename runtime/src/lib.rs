@@ -279,7 +279,7 @@ parameter_types! {
 /// Configure the pallet-filesystem in pallets/filesystem.
 impl pallet_filesystem::Config for Runtime {
 	type Event = Event;
-	type Groups = ();
+	// type Groups = ();
 	// type FileSizeT = u64;
 	type MaxFilename = MaxFilename;
 	type MaxNumOfFiles = MaxInodes;

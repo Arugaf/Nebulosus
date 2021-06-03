@@ -1,3 +1,13 @@
+//! # Filesystem Pallet
+//!
+//! Linux like filesystem on blockchain
+//!
+//! ## Overview
+//!
+//! ## Interface
+//!
+//!
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -113,9 +123,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
         /// Runtime definition of an event
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        type Groups: Default + Decode + Encode;
+        // type Groups: Default + Decode + Encode;
         // type FileSizeT: Default + Decode + Encode;
-
         /// Maximum size of single file in bytes
         #[pallet::constant]
         type MaxFileSize: Get<u32>;
@@ -197,38 +206,29 @@ pub mod pallet {
     #[pallet::metadata(T::AccountId = "AccountId")]
     #[pallet::generate_deposit(pub (super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A directory was created [who, name, inode]
+        /// Directory has been created [who, name, inode]
         DirectoryCreated(T::AccountId, Text, u32),
-        /// A directory was deleted [who, name, inode]
+        /// Directory has been deleted [who, name, inode]
         DirectoryDeleted(T::AccountId, Text, u32),
-        /// A directory was renamed [who, old_name, new_name]
-        DirectoryRenamed(T::AccountId, Text, Text),
-        /// A directory was moved to another directory [who, old_path, new_path]
-        DirectoryMoved(T::AccountId, Text, Text),
 
-        /// A file was created [who, name, inode, dir_inode]
+        /// File has been created [who, name, inode, dir_inode]
         FileCreated(T::AccountId, Text, u32, u32),
-        /// A file was deleted [who, name, inode]
+        /// File has been deleted [who, name, inode]
         FileDeleted(T::AccountId, Text, u32),
-        /// A file was changed [who, name, inode]
+        /// File has been modified [who, name, inode]
         FileModified(T::AccountId, Text, u32),
         /// File has been changed [who, name, inode]
         FileChanged(T::AccountId, Text, u32),
-        /// A file was renamed [who, old_name, new_name]
+        /// File has been renamed [who, old_name, new_name]
         FileRenamed(T::AccountId, Text, Text),
-        /// A file was moved [who, old_path, new_path]
+        /// File has been moved [who, old_path, new_path]
         FileMoved(T::AccountId, Text, Text),
+        /// File metadata has been changed [who, inode]
+        FileChangedMeta(T::AccountId, u32),
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// A directory/file with the same name is already exists
-        AlreadyExists,
-        /// A directory/file with this name does not exist
-        DoesNotExist,
-        /// No such directory
-        IncorrectPath,
-        /// Name should start with / and contains full path to file
         IncorrectName,
         IncorrectParentInode,
         DirectoryAlreadyExists,
@@ -265,13 +265,12 @@ pub mod pallet {
 
             // -------------------------------------------------------------------------delete
             // Temporary implementation cause can't understand how to work with genesis
-            // Todo: как бы разобраться как именно это работает и пофиксить
             // Todo: пофиксить genesis инициализацию рута и просто инициализацию структуры (просто кидать структуру не работает)
 
             let cur_node = CurrentInode::<T>::get();
             // if let cur_node = CurrentInode::<T>::get()
             if cur_node == 0 {
-                // Todo: SIZE - КАК БЫ ДЖЕНЕРИК ТАЙП, А КАК ЕГО ЗАСТАВИТЬ РАБОТАТЬ? ОЛО??
+                // Todo: size - generic
 
                 Inodes::<T>::insert(cur_node, INode::<T>::new(
                     who.clone(),
@@ -684,7 +683,7 @@ pub mod pallet {
                 mut_inode.changed = <pallet_timestamp::Pallet<T>>::get();
             });
 
-            Self::deposit_event(Event::FileChanged(who, filename, inode));
+            Self::deposit_event(Event::FileChangedMeta(who, inode));
 
             Ok(().into())
         }
@@ -707,7 +706,7 @@ pub mod pallet {
                 mut_inode.changed = <pallet_timestamp::Pallet<T>>::get()
             });
 
-            Self::deposit_event(Event::FileChanged(who, filename, inode));
+            Self::deposit_event(Event::FileChangedMeta(who, inode));
 
             Ok(().into())
         }
