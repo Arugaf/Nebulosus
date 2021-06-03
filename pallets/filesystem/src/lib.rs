@@ -212,6 +212,8 @@ pub mod pallet {
         FileDeleted(T::AccountId, Text, u32),
         /// A file was changed [who, name, inode]
         FileModified(T::AccountId, Text, u32),
+        /// File has been changed [who, name, inode]
+        FileChanged(T::AccountId, Text, u32),
         /// A file was renamed [who, old_name, new_name]
         FileRenamed(T::AccountId, Text, Text),
         /// A file was moved [who, old_path, new_path]
@@ -243,6 +245,9 @@ pub mod pallet {
         NoFileWithSuchName,
         NoSuchInode,
         IncorrectPermissions,
+        IncorrectOldInode,
+        IncorrectNewInode,
+        NameCollision
     }
 
     #[pallet::hooks]
@@ -675,7 +680,11 @@ pub mod pallet {
                 mut_inode.owner_permissions = permissions.0;
                 mut_inode.group_permissions = permissions.1;
                 mut_inode.others_permissions = permissions.2;
+
+                mut_inode.changed = <pallet_timestamp::Pallet<T>>::get();
             });
+
+            Self::deposit_event(Event::FileChanged(who, filename, inode));
 
             Ok(().into())
         }
@@ -694,9 +703,67 @@ pub mod pallet {
 
             Inodes::<T>::mutate(inode, |mut_inode| {
                 mut_inode.owner = new_owner;
+
+                mut_inode.changed = <pallet_timestamp::Pallet<T>>::get()
             });
+
+            Self::deposit_event(Event::FileChanged(who, filename, inode));
 
             Ok(().into())
         }
+
+        /*#[pallet::weight(1_000_000)]
+        pub(super) fn rename (
+            origin: OriginFor<T>,
+            parent_inode: u32,
+            old_name: Text,
+            new_name: Text
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            ensure!(old_name != new_name, Error::<T>::NameCollision);
+
+            ensure!(Directories::<T>::contains_key(parent_inode), Error::<T>::NoSuchDirectory);
+
+            ensure!(who == Inodes::<T>::get(inode).owner, Error::<T>::NotEnoughPermissions); // groups, sudo
+
+
+            Self::deposit_event(Event::FileChanged(who, filename, inode));
+
+            Ok(().into())
+        }*/
+
+        /*#[pallet::weight(1_000_000)]
+        pub(super) fn fmove (
+            origin: OriginFor<T>,
+            name: Text,
+            old_inode: u32,
+            new_inode: u32,
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            ensure!(Directories::<T>::contains_key(old_inode), Error::<T>::IncorrectOldInode);
+            ensure!(Directories::<T>::contains_key(new_inode), Error::<T>::IncorrectNewInode);
+
+            ensure!(Inodes::<T>::get(&old_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+            ensure!(Inodes::<T>::get(&new_inode).check_permissions(&who),
+                    Error::<T>::NotEnoughPermissions);
+
+            match Directories::<T>::get(&old_inode)
+                // Search for a given name in current directory
+                .binary_search_by(|probe| probe.0.cmp(&name)) {
+                // We cannot create file with already existing name in the directory
+                Ok(_) => {
+
+                },
+
+                Err(index) => {
+
+                }
+            }
+
+            Ok(().into())
+        }*/
     }
 }
