@@ -241,6 +241,8 @@ pub mod pallet {
         FileIsTooBig,
         NotFile,
         NoFileWithSuchName,
+        NoSuchInode,
+        IncorrectPermissions,
     }
 
     #[pallet::hooks]
@@ -653,6 +655,29 @@ pub mod pallet {
 
                 Err(_) => Err(Error::<T>::NoFileWithSuchName.into()),
             }
+        }
+
+        #[pallet::weight(1_000_000)]
+        pub(super) fn chmod (
+            origin: OriginFor<T>,
+            inode: u32,
+            permissions: (u8, u8, u8)
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin)?;
+
+            ensure!(Inodes::<T>::contains_key(inode), Error::<T>::NoSuchInode);
+
+            ensure!(who == Inodes::<T>::get(inode).owner, Error::<T>::NotEnoughPermissions); // groups, sudo
+            ensure!(permissions.0 <= ALL && permissions.1 <= ALL && permissions.2 <= ALL,
+                    Error::<T>::IncorrectPermissions);
+
+            Inodes::<T>::mutate(inode, |mut_inode| {
+                mut_inode.owner_permissions = permissions.0;
+                mut_inode.owner_permissions = permissions.1;
+                mut_inode.owner_permissions = permissions.2;
+            });
+
+            Ok(().into())
         }
     }
 }
